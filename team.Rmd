@@ -1,0 +1,152 @@
+---
+title: "lab5"
+author: "Ethan Wanlass"
+date: "11/14/2019"
+output: html_document
+---
+
+## Background
+
+"This data consist of 19 variables on 403 subjects who were interviewed in a study to understand the prevalence of obesity, diabetes, and other cardiovascular risk factors in central Virginia for African Americans," Lyanna Chu 
+
+## Processing the Data
+
+First step to analyzing this data set was to clean the dat. THis involved getting rid of NA value and dropping factors that were not used. Additionally, we removed id, bp.2s and bp.2d as we do not need this variables. We put this all into our clean dataset diabetes_clean.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+diabetes = read.table('diabetes.txt',header=TRUE)
+head(diabetes)
+str(diabetes)
+diabetes[diabetes == '']= NA
+table(diabetes == '')
+
+diabetes$frame = droplevels(diabetes$frame)
+diabetes$location = droplevels(diabetes$location)
+diabetes$gender = droplevels(diabetes$gender)
+
+diabetes_reduced = diabetes %>% select(-id,-bp.2s,-bp.2d)
+str(diabetes_reduced)
+index.na=apply(is.na(diabetes_reduced), 1, any)
+table(index.na)
+diabetes_clean = diabetes_reduced[-which(index.na),]
+index.na=apply(is.na(diabetes_clean), 1, any)
+table(index.na)
+
+```
+
+##  Exploring the data
+
+Our variable of interest is glyhb (Glycosolated Hemoglobin). However, before we can explore this value we needed to clean it. Checking the first distribution we can see that the distribution is right skewed. Thus, we took the log to even it out a bit. Checking that distribution we can still see that it's still right skewed. Thus, we took out some of the outliers by removing values that were 1.5 times outside the inner quartile range from the first and third quartile. Finally, checking the distribution we can see it looks much more symmetric.  
+
+```{r}
+
+ggplot(diabetes_clean, aes(glyhb)) + geom_histogram() + labs(title = "Glycosolated Hemoglobin Original Distribution")
+summary(diabetes_clean$glyhb)
+diabetes_clean = diabetes_clean %>% mutate(log_glyhb = log(glyhb))
+ggplot(diabetes_clean, aes(log_glyhb)) + geom_histogram() + labs(title = "Log of Glycosolated Hemoglobin Distribution")
+first_quartile = summary(diabetes_clean$log_glyhb)[["1st Qu."]]
+third_quartile = summary(diabetes_clean$log_glyhb)[["3rd Qu."]]
+IQR = third_quartile - first_quartile
+glyhb_star = diabetes_clean %>% filter(log_glyhb >= (first_quartile - 1.5*IQR) & log_glyhb<= (third_quartile + 1.5*IQR))
+class(glyhb_star)
+ggplot(glyhb_star, aes(glyhb)) + geom_histogram() + labs(title = "Glycosolated Hemoglobin Distribution without Outliers")
+glyhb_star %>% group_by(frame) %>% summarise(mean.glyhb = mean(glyhb))
+```
+
+The cleaned version of glyhb has been stored in the data frame glyhb_star. To get a better understanding, we can take a look at the summary statistic for the mean of glyhb for the different frames. 
+
+```{r}
+glyhb_star %>% group_by(frame) %>% summarise(mean.glyhb = mean(glyhb))
+```
+
+One of the relations we're interested in is the mean Glycosolated Hemoglobin in regards to location and seperated by frames. 
+
+```{r}
+
+glyhb_star%>%
+  group_by(frame, location)%>%
+  summarise(mean.glyhb=mean(glyhb))%>%
+  ggplot(aes(x = location, y = mean.glyhb, color=`frame`))+
+  geom_point() + labs(y = "Mean Glycosolated Hemoglobin", title = "The Mean Glycosolated Hemoglobin per Location Seperated by the Frames ")
+
+```
+
+We're also curious in how glyhb relates to ratio, bp.1s, age, gender, hip and weight. To check we made a scatter plot of each of these variables. 
+
+```{r}
+   glyhb_star %>% ggplot(aes(glyhb,ratio)) + geom_point() + labs(title = "Glycosolated Hemoglobin to Ratio")
+   glyhb_star %>%  ggplot(aes(glyhb,bp.1s)) + geom_point() + labs(title = "Glycosolated Hemoglobin to Bp.1s")
+   glyhb_star %>%  ggplot(aes(glyhb,age)) + geom_point() + labs(title = "Glycosolated Hemoglobin to Age")
+   glyhb_star %>%  ggplot(aes(gender,glyhb)) + geom_boxplot() + labs(title = "Glycosolated Hemoglobin to Gender")
+   glyhb_star %>%  ggplot(aes(glyhb,hip)) + geom_point() + labs(title = "Glycosolated Hemoglobin to Hip")
+   glyhb_star %>%  ggplot(aes(glyhb,weight)) + geom_point() + labs(title = "Glycosolated Hemoglobin to Weight")
+```
+
+Looking at these scatter plots, we can see that gender has little effect, but the rest of the variables have a weak positive relationship. 
+
+The following is a given graph that was asked to be improved upon. 
+
+```{r}
+ggplot(diabetes_clean,aes(y=hip,x=waist,alpha=0.5)) + geom_point() + facet_wrap(~frame) 
+```
+
+One option to improve upon it is to instead create boxplots that seperates the waists into ranges. 
+
+```{r}
+
+diabetes_clean$waist2 = cut(diabetes_clean$waist,4)
+
+ggplot(diabetes_clean,aes(y=hip,x=waist2)) + geom_boxplot() + facet_wrap(~frame) + labs(x = "Waist Sizes", y = "Hip", title = "Waist to Hip Sizes in Regards to Different Frames")
+```
+
+Another option is to use hollow points with jitter.
+
+```{r}
+ggplot(diabetes_clean,aes(y=hip,x=waist,alpha=0.5)) + geom_point(shape = "1") + geom_jitter() + facet_wrap(~frame) 
+```
+
+## Messy Data
+
+13. Gather is a function that takes multiple columns and creates one column with their new respective rows. Spread does the near inverse in take unique row types and creates columns out of them.  
+14. Not quite. Spread has a hard time taking only some of the rows where gather can easily choose which columns. 
+
+
+## Regression Models
+
+```{r }
+fit = lm(log_glyhb ~stab.glu + age + waist + ratio+ factor(frame),data=diabetes_clean)
+ summary(fit)
+```
+
+# Insights of the Model
+
+Checking our F-Statistic we can see with a very low p-value so there is some relation between glyhb and our model. The adjusted r-squared is 0.557 which is ok, but could definitely bet improved. Using a p-value cut off of .05 we can get rid of the frame from our model. Age and stab.glu have the lower p-values and most likely the greatest relationship.  
+
+# Intepretation of Coefficients
+
+The intercept means that for a large frame, the log of glyhb is approximately .833. stab.glu coefficient menas the log of glyhb increases by 0.0035182 for each unit increase in stab.glu holding all other values constant. The age coefficient means that the log of glyhb increases by 0.0033632 for each unit increase in age holding all other values constant. The waist coefficient means that the log of glyhb increases by 0.0047925 for each unit increase in waist holding all other values constant.The ratio coefficient means that the log of glyhb increases by 0.0219341 for each unit increase in ratio holding all other values constant. The medium frame coefficient means that the log of glyhb increases by 0.0309167 when it's a medium frame. The small frame coefficient means that the log of glyhb increases by 0.0131840 when it's a small frame.
+
+
+
+# Fitted Values
+
+17. The fitted values estimates the average log glyhb. Estimated Y is:  
+
+```{r }
+Y = 0.8330897+ 0.0035182*(90)  + 0.0033632*(35) + 0.0047925*(30) + 0.0219341*(5.1) + 0.0351518
+Y
+```
+
+
+18. The difference between inference and prediction is that inference looks into general relationships and facts about the model and variables, whereas prediction uses the model to find estimated values and relationships.  
+
+19. Linear regression is easy to understand, calculate and if relationship is linear, does a good estimate. However, if the model is non-linear k-NN regression can be a better model, but is more complicated and harder to develop. 
+
+# Reflection
+
+20. Honestly, I think I had a pretty good idea what data science was like coming into the class. I knew that a lot of the class was going to be a lot of data organization, some visualization, some analyzation with a little bit of data gathering. I think what I found most surprising is how fast data visualization can be created once that data is organized. Once you learn the code, it really does not take long to create basic, easy to understand figures. However, learning how to make concise and efficient code can be difficult and what I struggled most in this class. I really enjoyed seeing the fruits of my labors in the end, in particular with reorganized scatter plots and bar plots. 
+
